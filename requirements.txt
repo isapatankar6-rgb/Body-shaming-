@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+streamlit
+pillow
+requests
+torch
+torchvision
+diffusers
+transformers
+accelerate
