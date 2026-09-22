@@ -2,11 +2,12 @@ import streamlit as st
 from PIL import Image
 import requests
 import io
+import base64
 
 st.set_page_config(page_title="AI Virtual Fitting Room", page_icon="👗", layout="wide")
 
 st.title("👗 AI Virtual Fitting Room")
-st.write("Upload a person photo along with a garment image to preview outfit fitting.")
+st.write("Upload a target person photo along with a garment image to generate an automated AI outfit try-on.")
 
 col1, col2, col3 = st.columns([1, 1, 1])
 
@@ -25,23 +26,42 @@ with col2:
 with col3:
     st.subheader("3. Configuration")
     category = st.selectbox("Category", ["upper_body", "lower_body", "dresses"])
-    run_button = st.button("Generate Preview", type="primary", use_container_width=True)
+    api_key = st.text_input("Segmind API Key (Optional for live generation)", type="password")
+    run_button = st.button("Generate AI Try-On", type="primary", use_container_width=True)
 
 if run_button:
     if not person_file or not garment_file:
         st.error("Please upload both a person image and a garment image before generating.")
     else:
-        with st.spinner("Overlaying garment onto target body pose..."):
-            try:
-                # Open images
-                person_img = Image.open(person_file).convert("RGB")
-                garment_img = Image.open(garment_file).convert("RGB")
+        if not api_key:
+            st.warning("⚠️ No API Key provided. To run real-time IDM-VTON AI diffusion models without free-tier queuing issues, get a free API key at segmind.com.")
+            st.info("Showing preview setup with input images loaded successfully.")
+        else:
+            with st.spinner("Calling IDM-VTON AI serverless engine... warping garment & generating fit..."):
+                try:
+                    # Convert images to base64 or upload
+                    person_b64 = base64.b64encode(person_file.getvalue()).decode('utf-8')
+                    garment_b64 = base64.b64encode(garment_file.getvalue()).decode('utf-8')
 
-                # Display confirmation and processed target preview
-                st.success("Virtual Try-On Render Completed!")
-                
-                # Side-by-side composite visualization
-                st.image(garment_img, caption="Applied Outfit", use_container_width=True)
+                    url = "https://api.segmind.com/v1/idm-vton"
+                    headers = {"x-api-key": api_key}
+                    
+                    payload = {
+                        "category": category,
+                        "human_img": f"data:image/jpeg;base64,{person_b64}",
+                        "garm_img": f"data:image/jpeg;base64,{garment_b64}",
+                        "crop": False,
+                        "seed": 42,
+                        "steps": 30
+                    }
 
-            except Exception as e:
-                st.error(f"Processing error: {str(e)}")
+                    response = requests.post(url, json=payload, headers=headers)
+
+                    if response.status_code == 200:
+                        st.success("AI Virtual Try-On Rendered!")
+                        st.image(response.content, caption="AI Rendered Result", use_container_width=True)
+                    else:
+                        st.error(f"API Error ({response.status_code}): {response.text}")
+
+                except Exception as e:
+                    st.error(f"Processing error: {str(e)}")
