@@ -1,8 +1,7 @@
 import streamlit as st
 from PIL import Image
-import requests
-import io
-import base64
+import replicate
+import os
 
 st.set_page_config(page_title="AI Virtual Fitting Room", page_icon="👗", layout="wide")
 
@@ -26,42 +25,36 @@ with col2:
 with col3:
     st.subheader("3. Configuration")
     category = st.selectbox("Category", ["upper_body", "lower_body", "dresses"])
-    api_key = st.text_input("Segmind API Key (Optional for live generation)", type="password")
+    api_token = st.text_input("Replicate API Token", type="password")
     run_button = st.button("Generate AI Try-On", type="primary", use_container_width=True)
 
 if run_button:
     if not person_file or not garment_file:
         st.error("Please upload both a person image and a garment image before generating.")
+    elif not api_token:
+        st.error("Please paste your Replicate API Token above.")
     else:
-        if not api_key:
-            st.warning("⚠️ No API Key provided. To run real-time IDM-VTON AI diffusion models without free-tier queuing issues, get a free API key at segmind.com.")
-            st.info("Showing preview setup with input images loaded successfully.")
-        else:
-            with st.spinner("Calling IDM-VTON AI serverless engine... warping garment & generating fit..."):
-                try:
-                    # Convert images to base64 or upload
-                    person_b64 = base64.b64encode(person_file.getvalue()).decode('utf-8')
-                    garment_b64 = base64.b64encode(garment_file.getvalue()).decode('utf-8')
+        with st.spinner("Processing IDM-VTON model on Replicate GPU... Warping garment onto body..."):
+            try:
+                # Set environment variable for Replicate API authentication
+                os.environ["REPLICATE_API_TOKEN"] = api_token
 
-                    url = "https://api.segmind.com/v1/idm-vton"
-                    headers = {"x-api-key": api_key}
-                    
-                    payload = {
+                # Call active cuuupid/idm-vton endpoint
+                output = replicate.run(
+                    "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985",
+                    input={
+                        "human_img": person_file,
+                        "garm_img": garment_file,
+                        "garment_des": f"Virtual try-on for {category}",
                         "category": category,
-                        "human_img": f"data:image/jpeg;base64,{person_b64}",
-                        "garm_img": f"data:image/jpeg;base64,{garment_b64}",
                         "crop": False,
                         "seed": 42,
                         "steps": 30
                     }
+                )
 
-                    response = requests.post(url, json=payload, headers=headers)
+                st.success("AI Virtual Try-On Rendered Successfully!")
+                st.image(output, caption="AI Rendered Result", use_container_width=True)
 
-                    if response.status_code == 200:
-                        st.success("AI Virtual Try-On Rendered!")
-                        st.image(response.content, caption="AI Rendered Result", use_container_width=True)
-                    else:
-                        st.error(f"API Error ({response.status_code}): {response.text}")
-
-                except Exception as e:
-                    st.error(f"Processing error: {str(e)}")
+            except Exception as e:
+                st.error(f"Replicate API Error: {str(e)}")
