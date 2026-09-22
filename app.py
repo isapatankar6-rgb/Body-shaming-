@@ -1,7 +1,8 @@
 import streamlit as st
-import requests
 from PIL import Image
-import io
+from gradio_client import Client, handle_file
+import tempfile
+import os
 
 st.set_page_config(page_title="AI Virtual Fitting Room", page_icon="👗", layout="wide")
 
@@ -24,8 +25,7 @@ with col2:
 
 with col3:
     st.subheader("3. Configuration")
-    category = st.selectbox("Category", ["upperbody", "lowerbody", "dress"])
-    
+    category = st.selectbox("Category", ["upper_body", "lower_body", "dresses"])
     run_button = st.button("Generate Preview", type="primary", use_container_width=True)
 
 if run_button:
@@ -34,20 +34,36 @@ if run_button:
     else:
         with st.spinner("Processing pose estimation, garment warping, and diffusion blend..."):
             try:
-                files = {
-                    "person_image": ("person.jpg", person_file.getvalue(), "image/jpeg"),
-                    "garment_image": ("garment.jpg", garment_file.getvalue(), "image/jpeg"),
-                }
-                data = {"category": category}
+                # Save uploaded files temporarily
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_person:
+                    tmp_person.write(person_file.getvalue())
+                    person_path = tmp_person.name
 
-                # Send request to FastAPI backend
-                response = requests.post("http://localhost:8000/api/v1/try-on", files=files, data=data)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_garment:
+                    tmp_garment.write(garment_file.getvalue())
+                    garment_path = tmp_garment.name
 
-                if response.status_code == 200:
-                    result_img = Image.open(io.BytesIO(response.content))
-                    st.success("Try-On Rendered Successfully!")
-                    st.image(result_img, caption="Virtual Try-On Result", use_container_width=True)
-                else:
-                    st.error(f"Backend processing failed: {response.text}")
+                # Connect to open-source IDM-VTON inference space
+                client = Client("yisol/IDM-VTON")
+                
+                result = client.predict(
+                    dict={"background": handle_file(person_path), "layers": [], "composite": None},
+                    garm_img=handle_file(garment_path),
+                    garment_des="Virtual Try-On",
+                    is_checked=True,
+                    is_checked_crop=False,
+                    denoise_steps=30,
+                    seed=42,
+                    api_name="/tryon"
+                )
+
+                # Clean up temporary files
+                os.remove(person_path)
+                os.remove(garment_path)
+
+                # Render result
+                st.success("Try-On Rendered Successfully!")
+                st.image(result[0], caption="Virtual Try-On Result", use_container_width=True)
+
             except Exception as e:
-                st.error(f"Could not connect to backend server: {str(e)}")
+                st.error(f"Inference processing error: {str(e)}")
